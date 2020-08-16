@@ -10,34 +10,41 @@ ParameterHandler::ParameterHandler(const std::string& id)
 ParameterHandler::~ParameterHandler()
 {
     DBG("Deleting Parameter Handler");
-    params.clear();
+    m_params.clear();
+    m_paramNames.clear();
+    for (auto & listener : m_listener)
+    {
+        delete listener.second;
+    }
+    m_listener.clear();
 }
 
 void
 ParameterHandler::addParameter(const std::string& name, const std::string& showName, float min, float max, float value,
                                ParameterTypes type)
 {
+    m_paramNames[name] = showName;
     switch (type)
     {
         case Integer:
-            params.push_back(std::make_unique<AudioParameterInt>(name, showName, min, max, value));
+            m_params.push_back(std::make_unique<AudioParameterInt>(name, showName, min, max, value));
             break;
         case Float:
-            params.push_back(std::make_unique<AudioParameterFloat>(name, showName, min, max, value));
+            m_params.push_back(std::make_unique<AudioParameterFloat>(name, showName, min, max, value));
             break;
         case Boolean:
-            params.push_back(std::make_unique<AudioParameterBool>(name, showName, value == 1));
+            m_params.push_back(std::make_unique<AudioParameterBool>(name, showName, value == 1));
             break;
     }
 }
 
 AudioProcessorValueTreeState::ParameterLayout ParameterHandler::setupProcessor()
 {
-    if (params.empty())
+    if (m_params.empty())
     {
         setupParameter();
     }
-    return {params.begin(), params.end()};
+    return {m_params.begin(), m_params.end()};
 }
 
 void ParameterHandler::addParameterModulate(const std::string& name, const std::string& showName, float min, float max,
@@ -90,7 +97,7 @@ void ParameterHandler::setupParameter()
     for (int i = 1; i < 5; ++i)
     {
         std::string id = "osc" + std::to_string(i) + "__";
-        std::string name = "OSC" + std::to_string(i) + " ";
+        std::string name = "OSC" + std::to_string(i);
         addParameter(id + "active", name + " Active", 0, 1, i == 1 ? 1 : 0, Boolean);
         addParameter(id + "voices", name + " Voices", 0, 8, 8, Integer);
         addParameter(id + "semitones", name + " Semitones", -24, 24, 0, Integer);
@@ -105,14 +112,52 @@ void ParameterHandler::setupParameter()
         addParameterModulate(id + "stereo", name + " Stereo Wideness", 0, 200, 0, Float);
         // Envelope Part
         addParameter(id + "attack", name + " Attack", 0, 2, 0.01, Float);
-        addParameter(id + "decay", name + " Attack", 0, 2, 0.01, Float);
-        addParameter(id + "sustain", name + " Attack", 0, 2, 0.01, Float);
-        addParameter(id + "release", name + " Attack", 0, 2, 0.01, Float);
+        addParameter(id + "decay", name + " Decay", 0, 2, 0.01, Float);
+        addParameter(id + "sustain", name + " Sustain", 0, 1, 1, Float);
+        addParameter(id + "release", name + " Release", 0, 2, 0.01, Float);
 
         // Waveform
         addParameter(id + "waveform", name + " Waveform", 1, 9, 3, Integer);
         addParameterModulate(id + "waveform_mix", name + " Waveform Mix", 0, 1, 0, Float);
     }
-
     // FX SERIES LATER!
+    DBG("PARAMS REGISTERED");
+}
+
+
+void ParameterHandler::registerListener(const std::string& name, VeNoListener* listener)
+{
+    if (m_listener.find(name) == m_listener.end())
+    {
+        m_listener[name] = listener;
+    }
+}
+
+void ParameterHandler::deleteListener(const std::string& name)
+{
+    if (m_listener.find(name) != m_listener.end())
+    {
+        m_listener.erase(name);
+    }
+}
+
+void ParameterHandler::parameterChanged(const String& parameterID, float newValue)
+{
+    std::string value = parameterID.toStdString();
+    std::string getReal = m_paramNames[value];
+    for (const auto& element : m_listener)
+    {
+       element.second->parameterChanged(value, getReal, newValue);
+    }
+}
+
+void ParameterHandler::initParameterForListener(AudioProcessorValueTreeState* state)
+{
+    if (m_paramNames.empty()) {
+        DBG("NO PARAMS REGISTER");
+    }
+    for (auto & m_param : m_paramNames)
+    {
+        state->addParameterListener(m_param.first, this);
+    }
 }
